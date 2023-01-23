@@ -8,11 +8,10 @@ public class ArrayBlockingQueue1<E> extends AbstractQueue<E>
         implements BlockingQueue<E> {
 
     private Object[] items;
-    
-    private int size;
 
     private final boolean fair;
 
+    private int putIndex;
     private int takeIndex;
 
     public ArrayBlockingQueue1(int capacity) {
@@ -68,15 +67,6 @@ public class ArrayBlockingQueue1<E> extends AbstractQueue<E>
         return result;
     }
 
-    private boolean putTail(E e) {
-        Objects.requireNonNull(e);
-        if (isFull())
-            return false;
-        items[size] = e;
-        size++;
-        return true;
-    }
-
     @Override
     public synchronized E take() throws InterruptedException {
         while (isEmpty())
@@ -109,23 +99,37 @@ public class ArrayBlockingQueue1<E> extends AbstractQueue<E>
         return item;
     }
 
-    private E removeHead() {
-        if (isEmpty())
-            return null;
-        E item = (E) items[0];
-        Object[] newItems = new Object[capacity()];
-        if (size() - 1 >= 0)
-            System.arraycopy(items, 1, newItems, 0, size() - 1);
-        items = newItems;
-        size--;
-        return item;
-    }
-
     @Override
     public synchronized E peek() {
         if (isEmpty())
             return null;
-        return (E) items[0];
+        return (E) items[takeIndex];
+    }
+
+    private boolean putTail(E e) {
+        Objects.requireNonNull(e);
+        if (isFull())
+            return false;
+        if (putIndex == capacity())
+            restructureItems();
+        items[putIndex++] = e;
+        return true;
+    }
+
+    private E removeHead() {
+        if (isEmpty())
+            return null;
+        E item = (E) items[takeIndex];
+        items[takeIndex++] = null;
+        return item;
+    }
+
+    private void restructureItems() {
+        Object[] newItems = new Object[capacity()];
+        System.arraycopy(items, takeIndex, newItems, 0, size());
+        items = newItems;
+        putIndex = size();
+        takeIndex = 0;
     }
 
     @Override
@@ -177,7 +181,7 @@ public class ArrayBlockingQueue1<E> extends AbstractQueue<E>
 
     @Override
     public int size() {
-        return size;
+        return putIndex - takeIndex;
     }
 
     int capacity() {
@@ -196,14 +200,15 @@ public class ArrayBlockingQueue1<E> extends AbstractQueue<E>
     @Override
     public synchronized void clear() {
         items = new Object[capacity()];
-        size = 0;
+        putIndex = 0;
+        takeIndex = 0;
         notifyAll();
     }
 
     @Override
     public Object[] toArray() {
         Object[] array = new Object[size()];
-        System.arraycopy(items, 0, array, 0, size());
+        System.arraycopy(items, takeIndex, array, 0, size());
         return array;
     }
 
@@ -213,10 +218,10 @@ public class ArrayBlockingQueue1<E> extends AbstractQueue<E>
     }
 
     private class Itr implements Iterator<E> {
-        int cursor = 0;
+        int cursor = takeIndex;
         @Override
         public boolean hasNext() {
-            return cursor < size();
+            return cursor < putIndex;
         }
         @Override
         public E next() {
@@ -245,7 +250,7 @@ public class ArrayBlockingQueue1<E> extends AbstractQueue<E>
             return true;
         if (!(o instanceof BlockingQueue<?> that))
             return false;
-        if (size != that.size())
+        if (size() != that.size())
             return false;
         if (fair) {
             Iterator<E> iter = iterator();
